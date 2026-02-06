@@ -17,36 +17,34 @@ UserNode *user_list_append(UserList *list, User user) {
   UserNode *node = (UserNode *)malloc(sizeof(UserNode));
   if (!node) return NULL;
   node->user = user;
+  node->next = NULL;
   if (!list->head) {
-    node->next = node;
-    node->prev = node;
     list->head = node;
+    list->tail = node;
   } else {
-    UserNode *tail = list->head->prev;
-    node->next = list->head;
-    node->prev = tail;
-    tail->next = node;
-    list->head->prev = node;
+    list->tail->next = node;
+    list->tail = node;
   }
   list->size++;
   return node;
 }
 
 void user_list_clear(UserList *list) {
-  if (!list || !list->head) { list->size = 0; return; }
+  if (!list || !list->head) { list->size = 0; list->tail = NULL; return; }
   UserNode *node = list->head;
-  int remaining = list->size;
-  while (remaining-- > 0) {
+  while (node) {
     UserNode *next = node->next;
     free(node);
     node = next;
   }
   list->head = NULL;
+  list->tail = NULL;
   list->size = 0;
 }
 
 void user_list_init(UserList *list) {
   list->head = NULL;
+  list->tail = NULL;
   list->size = 0;
   list->append = user_list_append;
   list->clear = user_list_clear;

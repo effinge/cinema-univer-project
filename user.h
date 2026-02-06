@@ -11,15 +11,16 @@ typedef struct User {
   int isAdmin;
 } User;
 
+/* Односвязный список: только добавление в конец и обход от начала (нет навигации "назад"). */
 typedef struct UserNode {
   User user;
   struct UserNode *next;
-  struct UserNode *prev;
 } UserNode;
 
 typedef struct UserList UserList;
 struct UserList {
   UserNode *head;
+  UserNode *tail;  /* для O(1) append */
   int size;
   UserNode *(*append)(UserList *, User);
   void (*clear)(UserList *);
