@@ -11,15 +11,31 @@ typedef struct User {
   int isAdmin;
 } User;
 
+typedef struct UserNode {
+  User user;
+  struct UserNode *next;
+  struct UserNode *prev;
+} UserNode;
+
+typedef struct UserList UserList;
+struct UserList {
+  UserNode *head;
+  int size;
+  UserNode *(*append)(UserList *, User);
+  void (*clear)(UserList *);
+};
+
 typedef struct UserManager UserManager;
 struct UserManager {
-  User *users;
-  int count;
-  int cap;
+  UserList list;
   int (*load)(UserManager *, const char *path);
   int (*save)(UserManager *, const char *path);
-  int (*find_index)(UserManager *, const char *login);
+  User *(*find)(UserManager *, const char *login);
 };
+
+void user_list_init(UserList *list);
+UserNode *user_list_append(UserList *list, User user);
+void user_list_clear(UserList *list);
 
 void user_manager_init(UserManager *um);
 int is_login_valid(const char *login);

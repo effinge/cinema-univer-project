@@ -36,12 +36,12 @@ int main(int argc, char **argv) {
       printf("Проверьте, что файл существует в рабочей папке программы.\n\n");
       if (!read_line_stdin("Введите путь к файлу фильмов или пустую строку для выхода: ", path, sizeof(path))) {
         catalog.list.clear(&catalog.list);
-        free(um.users);
+        um.list.clear(&um.list);
         return 0;
       }
       if (path[0] == '\0') {
         catalog.list.clear(&catalog.list);
-        free(um.users);
+        um.list.clear(&um.list);
         return 0;
       }
       catalog.list.clear(&catalog.list);
@@ -57,7 +57,7 @@ int main(int argc, char **argv) {
   User *current_user = login_menu(&um);
   if (!current_user) {
     catalog.list.clear(&catalog.list);
-    free(um.users);
+    um.list.clear(&um.list);
     return 0;
   }
 
@@ -121,6 +121,6 @@ int main(int argc, char **argv) {
 
   favorites.list.clear(&favorites.list);
   catalog.list.clear(&catalog.list);
-  free(um.users);
+  um.list.clear(&um.list);
   return 0;
 }

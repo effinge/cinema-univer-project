@@ -39,18 +39,17 @@ int delete_current_film(FilmCatalog *catalog, FilmNode **current) {
 }
 
 int delete_film_from_catalog(FilmCatalog *catalog, const Film *film) {
-  FilmNode *node = catalog->list.head;
+  FilmNode *node = list_find_by_film(&catalog->list, film);
   if (!node) return 0;
-  int remaining = catalog->list.size;
-  while (remaining-- > 0) {
-    if (film_equals(&node->film, film)) {
-      catalog->list.remove_node(&catalog->list, node);
-      catalog->save(catalog, g_films_path);
-      return 1;
-    }
-    node = node->next;
-  }
-  return 0;
+  catalog->list.remove_node(&catalog->list, node);
+  catalog->save(catalog, g_films_path);
+  return 1;
+}
+
+void sync_favorites_and_user(Favorites *favorites, const char *fav_path, User *current_user, UserManager *um) {
+  favorites->save(favorites, fav_path);
+  current_user->favCount = favorites->list.size;
+  um->save(um, g_users_path);
 }
 
 int menu_catalog(FilmCatalog *catalog, Favorites *favorites, UserManager *um,
@@ -76,15 +75,12 @@ int menu_catalog(FilmCatalog *catalog, Favorites *favorites, UserManager *um,
         else if (sub == 'f') {
           if (inFav) favorites->remove_film(favorites, &current->film);
           else { Film copied = film_copy(&current->film); favorites->list.append(&favorites->list, copied); }
-          favorites->save(favorites, fav_path);
-          current_user->favCount = favorites->list.size;
-          um->save(um, g_users_path);
+          sync_favorites_and_user(favorites, fav_path, current_user, um);
         } else if (sub == 'x' && current_user->isAdmin) {
           Film removed = film_copy(&current->film);
           delete_current_film(catalog, &current);
           favorites->remove_film(favorites, &removed);
-          favorites->save(favorites, fav_path);
-          current_user->favCount = favorites->list.size;
+          sync_favorites_and_user(favorites, fav_path, current_user, um);
           remove_film_from_all_favorites(&removed, um, current_user->login);
           film_free(&removed);
           break;
@@ -95,9 +91,7 @@ int menu_catalog(FilmCatalog *catalog, Favorites *favorites, UserManager *um,
       if (!favorites->contains(favorites, &current->film)) {
         Film copied = film_copy(&current->film);
         favorites->list.append(&favorites->list, copied);
-        favorites->save(favorites, fav_path);
-        current_user->favCount = favorites->list.size;
-        um->save(um, g_users_path);
+        sync_favorites_and_user(favorites, fav_path, current_user, um);
       }
     } else if (cmd == 'v') return MENU_ACTION_TO_FAV;
     else if (cmd == 'p') return MENU_ACTION_PROFILE;
@@ -113,8 +107,7 @@ int menu_catalog(FilmCatalog *catalog, Favorites *favorites, UserManager *um,
       Film removed = film_copy(&current->film);
       delete_current_film(catalog, &current);
       favorites->remove_film(favorites, &removed);
-      favorites->save(favorites, fav_path);
-      current_user->favCount = favorites->list.size;
+      sync_favorites_and_user(favorites, fav_path, current_user, um);
       remove_film_from_all_favorites(&removed, um, current_user->login);
       film_free(&removed);
     } else if (cmd == 'q') return MENU_ACTION_EXIT;
@@ -142,17 +135,14 @@ int menu_favorites(FilmCatalog *catalog, Favorites *favorites, UserManager *um,
           FilmNode *next = current->next;
           favorites->list.remove_node(&favorites->list, current);
           current = favorites->list.size ? next : NULL;
-          favorites->save(favorites, fav_path);
-          current_user->favCount = favorites->list.size;
-          um->save(um, g_users_path);
+          sync_favorites_and_user(favorites, fav_path, current_user, um);
           break;
         } else if (sub == 'x' && current_user->isAdmin) {
           Film removed = film_copy(&current->film);
           FilmNode *next = current->next;
           favorites->list.remove_node(&favorites->list, current);
           current = favorites->list.size ? next : NULL;
-          favorites->save(favorites, fav_path);
-          current_user->favCount = favorites->list.size;
+          sync_favorites_and_user(favorites, fav_path, current_user, um);
           remove_film_from_all_favorites(&removed, um, current_user->login);
           delete_film_from_catalog(catalog, &removed);
           film_free(&removed);
@@ -164,9 +154,7 @@ int menu_favorites(FilmCatalog *catalog, Favorites *favorites, UserManager *um,
       FilmNode *next = current->next;
       favorites->list.remove_node(&favorites->list, current);
       current = favorites->list.size ? next : NULL;
-      favorites->save(favorites, fav_path);
-      current_user->favCount = favorites->list.size;
-      um->save(um, g_users_path);
+      sync_favorites_and_user(favorites, fav_path, current_user, um);
     } else if (cmd == 'c') return MENU_ACTION_TO_CAT;
     else if (cmd == 'p') return MENU_ACTION_PROFILE;
     else if (cmd == 'm') return MENU_ACTION_BACK;

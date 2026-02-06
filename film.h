@@ -34,4 +34,9 @@ int list_remove_node(FilmList *list, FilmNode *node);
 void list_clear(FilmList *list);
 void list_init(FilmList *list);
 
+int film_list_load_from_file(FilmList *list, const char *path);
+int film_list_save_to_file(const FilmList *list, const char *path);
+FilmNode *list_find_by_title_year(const FilmList *list, const char *title, int year);
+FilmNode *list_find_by_film(const FilmList *list, const Film *film);
+
 #endif /* CINEMA_FILM_H */

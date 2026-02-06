@@ -1,30 +1,72 @@
 #include "user.h"
+#include "user_input.h"
 #include "common.h"
 #include "favorites.h"
 #include "ui.h"
 #include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
-void ensure_user_capacity(UserManager *um) {
-  if (um->count < um->cap) return;
-  int newCap = um->cap == 0 ? 8 : um->cap * 2;
-  User *next = (User *)realloc(um->users, sizeof(User) * newCap);
-  if (!next) return;
-  um->users = next;
-  um->cap = newCap;
+/* Проверка для регистрации: логин должен быть свободен (post_check в read_until_valid). */
+static int login_free_check(const char *buf, void *ctx) {
+  return ((UserManager *)ctx)->find((UserManager *)ctx, buf) == NULL;
 }
 
-int user_manager_find_index(UserManager *um, const char *login) {
-  for (int i = 0; i < um->count; i++) {
-    if (strcmp(um->users[i].login, login) == 0) return i;
+UserNode *user_list_append(UserList *list, User user) {
+  UserNode *node = (UserNode *)malloc(sizeof(UserNode));
+  if (!node) return NULL;
+  node->user = user;
+  if (!list->head) {
+    node->next = node;
+    node->prev = node;
+    list->head = node;
+  } else {
+    UserNode *tail = list->head->prev;
+    node->next = list->head;
+    node->prev = tail;
+    tail->next = node;
+    list->head->prev = node;
   }
-  return -1;
+  list->size++;
+  return node;
+}
+
+void user_list_clear(UserList *list) {
+  if (!list || !list->head) { list->size = 0; return; }
+  UserNode *node = list->head;
+  int remaining = list->size;
+  while (remaining-- > 0) {
+    UserNode *next = node->next;
+    free(node);
+    node = next;
+  }
+  list->head = NULL;
+  list->size = 0;
+}
+
+void user_list_init(UserList *list) {
+  list->head = NULL;
+  list->size = 0;
+  list->append = user_list_append;
+  list->clear = user_list_clear;
+}
+
+User *user_manager_find(UserManager *um, const char *login) {
+  if (!um || !um->list.head) return NULL;
+  UserNode *node = um->list.head;
+  int remaining = um->list.size;
+  while (remaining-- > 0) {
+    if (strcmp(node->user.login, login) == 0) return &node->user;
+    node = node->next;
+  }
+  return NULL;
 }
 
 int user_manager_load(UserManager *um, const char *path) {
   FILE *fp = FOPEN(path, "r");
   if (!fp) return 0;
+  user_list_clear(&um->list);
   char login[MAX_LINE];
   char password[MAX_LINE];
   char card[MAX_LINE];
@@ -39,19 +81,13 @@ int user_manager_load(UserManager *um, const char *path) {
     int favCount = 0, isAdmin = 0;
     if (!parse_int(fav_line, &favCount)) favCount = 0;
     if (!parse_int(admin_line, &isAdmin)) isAdmin = 0;
-    if (um->count == um->cap) {
-      int newCap = um->cap == 0 ? 8 : um->cap * 2;
-      User *next = (User *)realloc(um->users, sizeof(User) * newCap);
-      if (!next) { fclose(fp); return 0; }
-      um->users = next;
-      um->cap = newCap;
-    }
-    User *user = &um->users[um->count++];
-    snprintf(user->login, sizeof(user->login), "%s", login);
-    snprintf(user->password, sizeof(user->password), "%s", password);
-    snprintf(user->card, sizeof(user->card), "%s", card);
-    user->favCount = favCount;
-    user->isAdmin = isAdmin;
+    User user;
+    snprintf(user.login, sizeof(user.login), "%s", login);
+    snprintf(user.password, sizeof(user.password), "%s", password);
+    snprintf(user.card, sizeof(user.card), "%s", card);
+    user.favCount = favCount;
+    user.isAdmin = isAdmin;
+    if (!um->list.append(&um->list, user)) { fclose(fp); return 0; }
   }
   fclose(fp);
   return 1;
@@ -60,22 +96,25 @@ int user_manager_load(UserManager *um, const char *path) {
 int user_manager_save(UserManager *um, const char *path) {
   FILE *fp = FOPEN(path, "w");
   if (!fp) return 0;
-  for (int i = 0; i < um->count; i++) {
-    User *user = &um->users[i];
-    fprintf(fp, "%s\n%s\n%s\n%d\n%d\n", user->login, user->password, user->card,
-            user->favCount, user->isAdmin);
+  if (um->list.head) {
+    UserNode *node = um->list.head;
+    int remaining = um->list.size;
+    while (remaining-- > 0) {
+      User *user = &node->user;
+      fprintf(fp, "%s\n%s\n%s\n%d\n%d\n", user->login, user->password, user->card,
+              user->favCount, user->isAdmin);
+      node = node->next;
+    }
   }
   fclose(fp);
   return 1;
 }
 
 void user_manager_init(UserManager *um) {
-  um->users = NULL;
-  um->count = 0;
-  um->cap = 0;
+  user_list_init(&um->list);
   um->load = user_manager_load;
   um->save = user_manager_save;
-  um->find_index = user_manager_find_index;
+  um->find = user_manager_find;
 }
 
 int is_login_valid(const char *login) {
@@ -113,43 +152,28 @@ User *user_register(UserManager *um) {
   char login[32];
   char password[32];
   char card[32];
-  while (1) {
-    if (!read_line_stdin("Новый логин (3-20 лат. букв/цифр): ", login, sizeof(login))) return NULL;
-    if (!is_login_valid(login)) {
-      printf("Логин должен быть 3-20 символов, только латиница и цифры.\n");
-      continue;
-    }
-    if (um->find_index(um, login) >= 0) {
-      printf("Такой логин уже существует.\n");
-      continue;
-    }
-    break;
-  }
-  while (1) {
-    if (!read_line_stdin("Новый пароль (6-20, верх/низ/цифра): ", password, sizeof(password))) return NULL;
-    if (!is_password_valid(password)) {
-      printf("Пароль должен содержать верхний/нижний регистр и цифру (только латиница/цифры).\n");
-      continue;
-    }
-    break;
-  }
-  while (1) {
-    if (!read_line_stdin("Номер карты (16 цифр): ", card, sizeof(card))) return NULL;
-    if (!is_card_valid(card)) {
-      printf("Номер карты должен содержать ровно 16 цифр.\n");
-      continue;
-    }
-    break;
-  }
-  ensure_user_capacity(um);
-  User *user = &um->users[um->count++];
-  snprintf(user->login, sizeof(user->login), "%s", login);
-  snprintf(user->password, sizeof(user->password), "%s", password);
-  snprintf(user->card, sizeof(user->card), "%s", card);
-  user->favCount = 0;
-  user->isAdmin = 0;
+  if (!read_until_valid("Новый логин (3-20 лат. букв/цифр): ", login, sizeof(login),
+                        is_login_valid, "Логин должен быть 3-20 символов, только латиница и цифры.",
+                        login_free_check, um, "Такой логин уже существует."))
+    return NULL;
+  if (!read_until_valid("Новый пароль (6-20, верх/низ/цифра): ", password, sizeof(password),
+                        is_password_valid, "Пароль должен содержать верхний/нижний регистр и цифру (только латиница/цифры).",
+                        NULL, NULL, NULL))
+    return NULL;
+  if (!read_until_valid("Номер карты (16 цифр): ", card, sizeof(card),
+                        is_card_valid, "Номер карты должен содержать ровно 16 цифр.",
+                        NULL, NULL, NULL))
+    return NULL;
+  User user;
+  snprintf(user.login, sizeof(user.login), "%s", login);
+  snprintf(user.password, sizeof(user.password), "%s", password);
+  snprintf(user.card, sizeof(user.card), "%s", card);
+  user.favCount = 0;
+  user.isAdmin = 0;
+  UserNode *node = um->list.append(&um->list, user);
+  if (!node) return NULL;
   um->save(um, g_users_path);
-  return user;
+  return &node->user;
 }
 
 User *user_login(UserManager *um) {
@@ -157,10 +181,10 @@ User *user_login(UserManager *um) {
   char password[32];
   if (!read_line_stdin("Логин: ", login, sizeof(login))) return NULL;
   if (!read_line_stdin("Пароль: ", password, sizeof(password))) return NULL;
-  int idx = um->find_index(um, login);
-  if (idx < 0) { printf("Пользователь не найден.\n"); return NULL; }
-  if (strcmp(um->users[idx].password, password) != 0) { printf("Неверный пароль.\n"); return NULL; }
-  return &um->users[idx];
+  User *u = um->find(um, login);
+  if (!u) { printf("Пользователь не найден.\n"); return NULL; }
+  if (strcmp(u->password, password) != 0) { printf("Неверный пароль.\n"); return NULL; }
+  return u;
 }
 
 User *login_menu(UserManager *um) {
@@ -195,13 +219,10 @@ void profile_menu(UserManager *um, User *user, char *fav_path, size_t fav_path_s
     char cmd = ui_read_command();
     if (cmd == '1') {
       char new_login[32];
-      if (!read_line_stdin("Новый логин: ", new_login, sizeof(new_login))) continue;
-      if (!is_login_valid(new_login)) {
-        printf("Логин должен быть 3-20 символов, только латиница и цифры.\n");
-        wait_enter("Нажмите Enter, чтобы продолжить...");
+      if (!read_validated_once("Новый логин: ", new_login, sizeof(new_login), is_login_valid,
+                               "Логин должен быть 3-20 символов, только латиница и цифры."))
         continue;
-      }
-      if (um->find_index(um, new_login) >= 0) {
+      if (um->find(um, new_login) != NULL) {
         printf("Такой логин уже существует.\n");
         wait_enter("Нажмите Enter, чтобы продолжить...");
         continue;
@@ -214,22 +235,16 @@ void profile_menu(UserManager *um, User *user, char *fav_path, size_t fav_path_s
       um->save(um, g_users_path);
     } else if (cmd == '2') {
       char new_password[32];
-      if (!read_line_stdin("Новый пароль: ", new_password, sizeof(new_password))) continue;
-      if (!is_password_valid(new_password)) {
-        printf("Пароль должен содержать верхний/нижний регистр и цифру (только латиница/цифры).\n");
-        wait_enter("Нажмите Enter, чтобы продолжить...");
+      if (!read_validated_once("Новый пароль: ", new_password, sizeof(new_password), is_password_valid,
+                               "Пароль должен содержать верхний/нижний регистр и цифру (только латиница/цифры)."))
         continue;
-      }
       snprintf(user->password, sizeof(user->password), "%s", new_password);
       um->save(um, g_users_path);
     } else if (cmd == '3') {
       char new_card[32];
-      if (!read_line_stdin("Новая карта (16 цифр): ", new_card, sizeof(new_card))) continue;
-      if (!is_card_valid(new_card)) {
-        printf("Номер карты должен содержать ровно 16 цифр.\n");
-        wait_enter("Нажмите Enter, чтобы продолжить...");
+      if (!read_validated_once("Новая карта (16 цифр): ", new_card, sizeof(new_card), is_card_valid,
+                               "Номер карты должен содержать ровно 16 цифр."))
         continue;
-      }
       snprintf(user->card, sizeof(user->card), "%s", new_card);
       um->save(um, g_users_path);
     } else if (cmd == '4' || cmd == 'q') running = 0;

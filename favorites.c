@@ -5,69 +5,22 @@
 #include <string.h>
 
 int favorites_load(Favorites *favorites, const char *path) {
-  FILE *fp = FOPEN(path, "r");
-  if (!fp) return 0;
-  char title[MAX_LINE];
-  char year_line[MAX_LINE];
-  char country[MAX_LINE];
-  char genre[MAX_LINE];
-  char rating_line[MAX_LINE];
-  while (read_line(fp, title, sizeof(title))) {
-    if (title[0] == '\0') continue;
-    if (!read_line(fp, year_line, sizeof(year_line))) break;
-    if (!read_line(fp, country, sizeof(country))) break;
-    if (!read_line(fp, genre, sizeof(genre))) break;
-    if (!read_line(fp, rating_line, sizeof(rating_line))) break;
-    int year = 0;
-    float rating = 0.0f;
-    if (!parse_int(year_line, &year)) continue;
-    if (!parse_float(rating_line, &rating)) continue;
-    Film film = film_create(title, year, country, genre, rating);
-    favorites->list.append(&favorites->list, film);
-  }
-  fclose(fp);
-  return 1;
+  return film_list_load_from_file(&favorites->list, path);
 }
 
 int favorites_save(Favorites *favorites, const char *path) {
-  FILE *fp = FOPEN(path, "w");
-  if (!fp) return 0;
-  if (favorites->list.head) {
-    FilmNode *node = favorites->list.head;
-    int remaining = favorites->list.size;
-    while (remaining-- > 0) {
-      fprintf(fp, "%s\n%d\n%s\n%s\n%.1f\n", node->film.title, node->film.year,
-              node->film.country, node->film.genre, node->film.rating);
-      node = node->next;
-    }
-  }
-  fclose(fp);
-  return 1;
+  return film_list_save_to_file(&favorites->list, path);
 }
 
 int favorites_contains(Favorites *favorites, const Film *film) {
-  if (!favorites->list.head) return 0;
-  FilmNode *node = favorites->list.head;
-  int remaining = favorites->list.size;
-  while (remaining-- > 0) {
-    if (film_equals(&node->film, film)) return 1;
-    node = node->next;
-  }
-  return 0;
+  return list_find_by_film(&favorites->list, film) != NULL;
 }
 
 int favorites_remove_film(Favorites *favorites, const Film *film) {
-  if (!favorites->list.head) return 0;
-  FilmNode *node = favorites->list.head;
-  int remaining = favorites->list.size;
-  while (remaining-- > 0) {
-    if (film_equals(&node->film, film)) {
-      favorites->list.remove_node(&favorites->list, node);
-      return 1;
-    }
-    node = node->next;
-  }
-  return 0;
+  FilmNode *node = list_find_by_film(&favorites->list, film);
+  if (!node) return 0;
+  favorites->list.remove_node(&favorites->list, node);
+  return 1;
 }
 
 void favorites_init(Favorites *favorites) {
@@ -83,9 +36,12 @@ void favorites_file_for(const char *base_dir, const char *login, char *out, size
 }
 
 void remove_film_from_all_favorites(const Film *film, UserManager *um, const char *skip_login) {
-  for (int i = 0; i < um->count; i++) {
-    User *user = &um->users[i];
-    if (skip_login && strcmp(user->login, skip_login) == 0) continue;
+  if (!um->list.head) return;
+  UserNode *node = um->list.head;
+  int remaining = um->list.size;
+  while (remaining-- > 0) {
+    User *user = &node->user;
+    if (skip_login && strcmp(user->login, skip_login) == 0) { node = node->next; continue; }
     char path[256];
     favorites_file_for(g_base_dir, user->login, path, sizeof(path));
     Favorites tmp;
@@ -96,6 +52,7 @@ void remove_film_from_all_favorites(const Film *film, UserManager *um, const cha
       user->favCount = tmp.list.size;
     }
     tmp.list.clear(&tmp.list);
+    node = node->next;
   }
   um->save(um, g_users_path);
 }

@@ -13,6 +13,8 @@ enum MenuAction {
   MENU_ACTION_EXIT = -1
 };
 
+void sync_favorites_and_user(Favorites *favorites, const char *fav_path, User *current_user, UserManager *um);
+
 int menu_catalog(FilmCatalog *catalog, Favorites *favorites, UserManager *um,
                  User *current_user, const char *fav_path);
 int menu_favorites(FilmCatalog *catalog, Favorites *favorites, UserManager *um,
